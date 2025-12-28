@@ -1,0 +1,9 @@
+{
+  "name": "ingestion-api",
+  "packageManager": "yarn@4.9.1",
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/index.ts",
+    "build": "tsc -p tsconfig.json"
+  }
+}
