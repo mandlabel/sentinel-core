@@ -1,0 +1,9 @@
+{
+  "name": "worker",
+  "packageManager": "yarn@4.9.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/index.ts"
+  }
+}
