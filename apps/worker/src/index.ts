@@ -1,16 +1,28 @@
 import { pool } from "./db";
+import { computeFingerprint } from "./fingerprint";
+import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
+
+type EventRow = {
+  id: string;
+  project_id: string;
+  event_type: "error" | "transaction";
+  occurred_at: string;
+  payload: any;
+};
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchUnprocessedEvents() {
+async function fetchUnprocessedEvents(): Promise<EventRow[]> {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
-    const result = await client.query<{ id: string }>(`
-      SELECT id
+    const result = await client.query<EventRow>(`
+      SELECT id, project_id, event_type, occurred_at, payload
       FROM events_raw
       WHERE processed = false
       ORDER BY received_at
@@ -28,15 +40,69 @@ async function fetchUnprocessedEvents() {
   }
 }
 
-async function markProcessed(id: string) {
-  await pool.query(
+async function handleErrorEventTx(
+  client: PoolClient,
+  event: EventRow
+) {
+  const { exception_type, stacktrace } = event.payload ?? {};
+
+  if (!exception_type || !stacktrace) {
+    return;
+  }
+
+  const fingerprint = computeFingerprint(exception_type, stacktrace);
+
+  await client.query(
     `
-    UPDATE events_raw
-    SET processed = true
-    WHERE id = $1
+    INSERT INTO error_groups (
+      id,
+      project_id,
+      fingerprint,
+      first_seen,
+      last_seen,
+      occurrence_count
+    )
+    VALUES ($1, $2, $3, $4, $4, 1)
+    ON CONFLICT (project_id, fingerprint)
+    DO UPDATE SET
+      last_seen = EXCLUDED.last_seen,
+      occurrence_count = error_groups.occurrence_count + 1
     `,
-    [id]
+    [
+      randomUUID(),
+      event.project_id,
+      fingerprint,
+      event.occurred_at
+    ]
   );
+}
+
+async function processEvent(event: EventRow) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    if (event.event_type === "error") {
+      await handleErrorEventTx(client, event);
+    }
+
+    await client.query(
+      `
+      UPDATE events_raw
+      SET processed = true
+      WHERE id = $1
+      `,
+      [event.id]
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function start() {
@@ -53,7 +119,7 @@ async function start() {
       }
 
       for (const event of events) {
-        await markProcessed(event.id);
+        await processEvent(event);
       }
     }
   } catch (err) {
