@@ -15,6 +15,12 @@ function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function truncateToMinute(ts: string): Date {
+  const d = new Date(ts);
+  d.setSeconds(0, 0);
+  return d;
+}
+
 async function fetchUnprocessedEvents(): Promise<EventRow[]> {
   const client = await pool.connect();
 
@@ -77,6 +83,28 @@ async function handleErrorEventTx(
   );
 }
 
+async function updateErrorMetricsTx(
+  client: PoolClient,
+  event: EventRow
+) {
+  const minute = truncateToMinute(event.occurred_at);
+
+  await client.query(
+    `
+    INSERT INTO metrics_minute (
+      project_id,
+      minute,
+      error_count
+    )
+    VALUES ($1, $2, 1)
+    ON CONFLICT (project_id, minute)
+    DO UPDATE SET
+      error_count = metrics_minute.error_count + 1
+    `,
+    [event.project_id, minute]
+  );
+}
+
 async function processEvent(event: EventRow) {
   const client = await pool.connect();
 
@@ -85,6 +113,7 @@ async function processEvent(event: EventRow) {
 
     if (event.event_type === "error") {
       await handleErrorEventTx(client, event);
+      await updateErrorMetricsTx(client, event);
     }
 
     await client.query(
