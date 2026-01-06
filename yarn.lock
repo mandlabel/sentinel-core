@@ -1166,6 +1166,12 @@ __metadata:
   languageName: node
   linkType: hard
 
+"query-api@workspace:apps/query-api":
+  version: 0.0.0-use.local
+  resolution: "query-api@workspace:apps/query-api"
+  languageName: unknown
+  linkType: soft
+
 "quick-format-unescaped@npm:^4.0.3":
   version: 4.0.4
   resolution: "quick-format-unescaped@npm:4.0.4"
