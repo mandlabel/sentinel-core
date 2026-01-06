@@ -1,0 +1,7 @@
+{
+  "name": "query-api",
+  "packageManager": "yarn@4.9.1",
+  "scripts": {
+    "dev": "node --import tsx src/index.ts"
+  }
+}
